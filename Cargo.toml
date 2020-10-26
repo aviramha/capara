@@ -1,0 +1,14 @@
+[package]
+name = "capara"
+version = "0.1.0"
+edition = "2018"
+authors = ["Aviram Hassan <aviramyhassan@gmail.com>"]
+
+[lib]
+name = "capara"
+crate-type = ["cdylib"]
+
+[dependencies.pyo3]
+git = "https://github.com/aviramha/pyo3"
+branch = "fix_pycodeobj_struct"
+features = ["extension-module"]
