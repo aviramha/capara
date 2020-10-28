@@ -2,14 +2,15 @@ use pyo3::ffi::{
     PyContextVar_Get, PyEval_SetProfile, PyFrameObject, PyUnicode_AsUTF8, Py_tracefunc,
 };
 use pyo3::prelude::*;
-use pyo3::types::*;
 use pyo3::wrap_pyfunction;
 use pyo3::{AsPyPointer, PyAny, Python};
 use std::collections::HashMap;
+use std::convert::{TryFrom, TryInto};
 use std::ffi::CStr;
 use std::os::raw::c_int;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
+/// Enum of possible Python's Trace/Profiling events
 #[allow(dead_code)]
 #[repr(i32)]
 enum TraceEvent {
@@ -20,15 +21,30 @@ enum TraceEvent {
     CCall,
     CException,
     CReturn,
-    Opcode
+    Opcode,
+    __NonExhaustive,
 }
 
+impl TryFrom<c_int> for TraceEvent {
+    type Error = &'static str;
+    /// Cast i32 event (raw from Python) to Rust enum.
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        if value > 7 || value < 0 {
+            return Err("Not valid enum value");
+        }
+        Ok(unsafe { std::mem::transmute(value) })
+    }
+}
+
+/// Struct representing frame data
+/// Identifier is frame pointer casted to usize.
 struct FrameData {
     func_name: String,
     file_name: String,
-    identifier: usize
+    identifier: usize,
 }
 
+/// end can be None due to lack of Return callback
 #[cfg(Py_3_8)]
 struct ProfilerEntry {
     file_name: String,
@@ -37,19 +53,20 @@ struct ProfilerEntry {
     end: Option<Instant>,
 }
 
+/// Profiler context to be used as a value for ContextVar.
 #[pyclass]
 struct ProfilerContext {
     entries: std::cell::Cell<HashMap<usize, ProfilerEntry>>,
 }
 
+/// Format an entry into file_name, func_name and duration.
 fn format_entry(entry: &ProfilerEntry) -> (String, String, Option<u128>) {
     let duration = match entry.end {
         Some(v) => Some(v.duration_since(entry.start).as_nanos()),
-        None => None
+        None => None,
     };
     (entry.file_name.clone(), entry.func_name.clone(), duration)
 }
-
 
 #[pymethods]
 impl ProfilerContext {
@@ -69,49 +86,21 @@ impl ProfilerContext {
     }
 }
 
-
-fn extract_context(context_var: *mut pyo3::ffi::PyObject) -> Option<ProfilerContext> {
-    let gil = Python::acquire_gil();
-    let mut context_value: *mut pyo3::ffi::PyObject = std::ptr::null_mut();
-
-    unsafe {
-        match PyContextVar_Get(
-            context_var,
-            std::ptr::null_mut(),
-            &mut context_value as *mut *mut pyo3::ffi::PyObject,
-        ) {
-            0 => (),
-            _ => return None
-        };
-    }
-
-    if context_value.is_null() {
-        return None
-    }
-    let context = match unsafe { Py::<ProfilerContext>::from_borrowed_ptr_or_opt(gil.python(), context_value)} {
-        Some(v) => v,
-        None => return None
-    };
-
-    let cell = context.as_ref(gil.python());
-    let mut ctx = cell.borrow_mut();
-
-    unsafe {pyo3::ffi::Py_XDECREF(context_value);}
-    ctx
-}
-
+/// Extracts FrameData from FFI PyFrameObject
+/// # Arguments
+/// * ``frame`` - FFI Frame object pointer
 fn extract_from_frame(frame: *mut PyFrameObject) -> Option<FrameData> {
     if frame.is_null() {
-        return None
+        return None;
     }
 
-    let dframe = *frame;
+    let dframe = unsafe { *frame };
 
     if dframe.f_code.is_null() {
-        return None
+        return None;
     }
 
-    let code = *dframe.f_code;
+    let code = unsafe { *dframe.f_code };
     unsafe {
         let file_name = match code.co_filename.is_null() {
             true => "null".to_string(),
@@ -122,45 +111,93 @@ fn extract_from_frame(frame: *mut PyFrameObject) -> Option<FrameData> {
         let func_name = match code.co_name.is_null() {
             true => "null".to_string(),
             false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_name))
-            .to_string_lossy()
-            .into_owned(),
+                .to_string_lossy()
+                .into_owned(),
         };
-        Some(FrameData{func_name, file_name, identifier: frame as usize})
+        Some(FrameData {
+            func_name,
+            file_name,
+            identifier: frame as usize,
+        })
     }
 }
 
+/// Our profiler callback
 extern "C" fn callback(
     obj: *mut pyo3::ffi::PyObject,
     frame: *mut PyFrameObject,
     what: c_int,
-    arg: *mut pyo3::ffi::PyObject,
+    _arg: *mut pyo3::ffi::PyObject,
 ) -> c_int {
-    let what: TraceEvent = unsafe {std::mem::transmute(what)};
-    match what {
-        TraceEvent::Call | TraceEvent::Return => (),
+    let event: TraceEvent = match what.try_into() {
+        Ok(event) => match event {
+            TraceEvent::Call | TraceEvent::Return => event,
+            _ => return 0,
+        },
         _ => return 0,
     };
 
-    let context = match extract_context(obj) {
-        Some(v) => v,
-        None => return 0,
-    };
+    let gil = Python::acquire_gil();
+    let py = gil.python();
 
     let frame_data = match extract_from_frame(frame) {
         Some(v) => v,
         None => return 0,
     };
 
+    let mut context_value: *mut pyo3::ffi::PyObject = std::ptr::null_mut();
 
-    let start = Instant::now();
-    let entry = ProfilerEntry {
-        func_name: frame_data.func_name,
-        file_name: frame_data.file_name,
-            start,
-            end: None,
+    unsafe {
+        match PyContextVar_Get(
+            obj,
+            std::ptr::null_mut(),
+            &mut context_value as *mut *mut pyo3::ffi::PyObject,
+        ) {
+            0 => (),
+            _ => return 0,
         };
-        context.entries.get_mut().insert(frame_data.identifier, entry);
+    }
 
+    if context_value.is_null() {
+        return 0;
+    }
+
+    let context_obj =
+        match unsafe { Py::<ProfilerContext>::from_borrowed_ptr_or_opt(py, context_value) } {
+            Some(v) => v,
+            None => return 0,
+        };
+
+    let mut context = context_obj.as_ref(py).borrow_mut();
+
+    match event {
+        TraceEvent::Call => {
+            let start = Instant::now();
+            let entry = ProfilerEntry {
+                func_name: frame_data.func_name,
+                file_name: frame_data.file_name,
+                start,
+                end: None,
+            };
+            context
+                .entries
+                .get_mut()
+                .insert(frame_data.identifier, entry);
+        }
+        TraceEvent::Return => {
+            match context.entries.get_mut().get_mut(&frame_data.identifier) {
+                Some(entry) => {
+                    entry.end = Some(Instant::now());
+                }
+                None => println!("shouldn't happen"),
+            };
+        }
+        _ => println!("shouldn't happen"),
+    }
+
+    unsafe {
+        pyo3::ffi::Py_XDECREF(context_value);
+    }
     0
 }
 
@@ -173,10 +210,6 @@ fn start(context_var: &PyAny) -> PyResult<()> {
     Ok(())
 }
 
-// #[pyclass]
-// struct Profiler {
-//     frames: Hash
-// }
 #[pymodule]
 /// A Python module implemented in Rust.
 fn capara(_py: Python, m: &PyModule) -> PyResult<()> {
