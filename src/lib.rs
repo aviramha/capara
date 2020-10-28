@@ -189,7 +189,7 @@ extern "C" fn callback(
                 Some(entry) => {
                     entry.end = Some(Instant::now());
                 }
-                None => println!("shouldn't happen"),
+                None => (),
             };
         }
         _ => println!("shouldn't happen"),
