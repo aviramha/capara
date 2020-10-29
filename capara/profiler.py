@@ -31,4 +31,7 @@ def stop() -> List[Tuple[str, str, int]]:
     _reference_count -= 1
     if _reference_count == 0:
         sys.setprofile(None)
-    return _profiler_context.get().entries
+    entries = _profiler_context.get().entries
+    # Remove stop function entry to avoid garbage
+    entries.remove((__file__, 'stop', None))
+    return entries

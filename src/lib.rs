@@ -1,5 +1,6 @@
 use pyo3::ffi::{
     PyContextVar_Get, PyEval_SetProfile, PyFrameObject, PyUnicode_AsUTF8, Py_tracefunc,
+    CO_ASYNC_GENERATOR, CO_COROUTINE, CO_ITERABLE_COROUTINE,
 };
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
@@ -42,6 +43,7 @@ struct FrameData {
     func_name: String,
     file_name: String,
     identifier: usize,
+    yielded_coroutine: bool,
 }
 
 /// end can be None due to lack of Return callback
@@ -101,6 +103,12 @@ fn extract_from_frame(frame: *mut PyFrameObject) -> Option<FrameData> {
     }
 
     let code = unsafe { *dframe.f_code };
+    let yielded_coroutine = {
+        (0 < (code.co_flags & CO_COROUTINE)
+            | (code.co_flags & CO_ITERABLE_COROUTINE)
+            | (code.co_flags & CO_ASYNC_GENERATOR))
+            && (!dframe.f_stacktop.is_null())
+    };
     unsafe {
         let file_name = match code.co_filename.is_null() {
             true => "null".to_string(),
@@ -118,8 +126,39 @@ fn extract_from_frame(frame: *mut PyFrameObject) -> Option<FrameData> {
             func_name,
             file_name,
             identifier: frame as usize,
+            yielded_coroutine,
         })
     }
+}
+
+fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerContext>> {
+    let mut context_value: *mut pyo3::ffi::PyObject = std::ptr::null_mut();
+
+    unsafe {
+        match PyContextVar_Get(
+            obj,
+            std::ptr::null_mut(),
+            &mut context_value as *mut *mut pyo3::ffi::PyObject,
+        ) {
+            0 => (),
+            _ => return None,
+        };
+    }
+
+    if context_value.is_null() {
+        return None;
+    }
+
+    let context_obj =
+        match unsafe { Py::<ProfilerContext>::from_borrowed_ptr_or_opt(py, context_value) } {
+            Some(v) => v,
+            None => return None,
+        };
+
+    unsafe {
+        pyo3::ffi::Py_XDECREF(context_value);
+    }
+    Some(context_obj)
 }
 
 /// Our profiler callback
@@ -137,38 +176,19 @@ extern "C" fn callback(
         _ => return 0,
     };
 
-    let gil = Python::acquire_gil();
-    let py = gil.python();
-
     let frame_data = match extract_from_frame(frame) {
         Some(v) => v,
         None => return 0,
     };
 
-    let mut context_value: *mut pyo3::ffi::PyObject = std::ptr::null_mut();
+    let gil = Python::acquire_gil();
+    let py = gil.python();
 
-    unsafe {
-        match PyContextVar_Get(
-            obj,
-            std::ptr::null_mut(),
-            &mut context_value as *mut *mut pyo3::ffi::PyObject,
-        ) {
-            0 => (),
-            _ => return 0,
-        };
-    }
-
-    if context_value.is_null() {
-        return 0;
-    }
-
-    let context_obj =
-        match unsafe { Py::<ProfilerContext>::from_borrowed_ptr_or_opt(py, context_value) } {
-            Some(v) => v,
-            None => return 0,
-        };
-
-    let mut context = context_obj.as_ref(py).borrow_mut();
+    let context = match get_context(py, obj) {
+        Some(v) => v,
+        _ => return 0,
+    };
+    let mut context = context.as_ref(py).borrow_mut();
 
     match event {
         TraceEvent::Call => {
@@ -185,6 +205,9 @@ extern "C" fn callback(
                 .insert(frame_data.identifier, entry);
         }
         TraceEvent::Return => {
+            if frame_data.yielded_coroutine {
+                return 0;
+            }
             match context.entries.get_mut().get_mut(&frame_data.identifier) {
                 Some(entry) => {
                     entry.end = Some(Instant::now());
@@ -193,10 +216,6 @@ extern "C" fn callback(
             };
         }
         _ => println!("shouldn't happen"),
-    }
-
-    unsafe {
-        pyo3::ffi::Py_XDECREF(context_value);
     }
     0
 }
