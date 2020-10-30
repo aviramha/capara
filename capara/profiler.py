@@ -14,7 +14,7 @@ def start() -> None:
     Notes:
         Raises RuntimeError if a context already exists in task.
     """
-    if not is_active():
+    if is_active():
         raise RuntimeError("Profiler already exists")
     _profiler_context.set(capara.ProfilerContext())
     global _reference_count
