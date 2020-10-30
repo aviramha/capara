@@ -46,6 +46,50 @@ struct FrameData {
     yielded_coroutine: bool,
 }
 
+impl TryFrom<*mut PyFrameObject> for FrameData {
+    type Error = &'static str;
+    fn try_from(frame: *mut PyFrameObject) -> Result<Self, Self::Error> {
+        if frame.is_null() {
+            return Err("frame is null");
+        }
+
+        let dframe = unsafe { *frame };
+
+        if dframe.f_code.is_null() {
+            return Err("f_code is null");
+        }
+
+        let code = unsafe { *dframe.f_code };
+        let yielded_coroutine = {
+            (0 < (code.co_flags & CO_COROUTINE)
+                | (code.co_flags & CO_ITERABLE_COROUTINE)
+                | (code.co_flags & CO_ASYNC_GENERATOR))
+                && (!dframe.f_stacktop.is_null())
+        };
+
+        unsafe {
+            let file_name = match code.co_filename.is_null() {
+                true => "null".to_string(),
+                false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_filename))
+                    .to_string_lossy()
+                    .into_owned(),
+            };
+            let func_name = match code.co_name.is_null() {
+                true => "null".to_string(),
+                false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_name))
+                    .to_string_lossy()
+                    .into_owned(),
+            };
+            Ok(FrameData {
+                func_name,
+                file_name,
+                identifier: frame as usize,
+                yielded_coroutine,
+            })
+        }
+    }
+}
+
 /// end can be None due to lack of Return callback
 #[cfg(Py_3_8)]
 struct ProfilerEntry {
@@ -85,49 +129,6 @@ impl ProfilerContext {
             result.push(format_entry(entry));
         }
         Ok(result)
-    }
-}
-
-/// Extracts FrameData from FFI PyFrameObject
-/// # Arguments
-/// * ``frame`` - FFI Frame object pointer
-fn extract_from_frame(frame: *mut PyFrameObject) -> Option<FrameData> {
-    if frame.is_null() {
-        return None;
-    }
-
-    let dframe = unsafe { *frame };
-
-    if dframe.f_code.is_null() {
-        return None;
-    }
-
-    let code = unsafe { *dframe.f_code };
-    let yielded_coroutine = {
-        (0 < (code.co_flags & CO_COROUTINE)
-            | (code.co_flags & CO_ITERABLE_COROUTINE)
-            | (code.co_flags & CO_ASYNC_GENERATOR))
-            && (!dframe.f_stacktop.is_null())
-    };
-    unsafe {
-        let file_name = match code.co_filename.is_null() {
-            true => "null".to_string(),
-            false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_filename))
-                .to_string_lossy()
-                .into_owned(),
-        };
-        let func_name = match code.co_name.is_null() {
-            true => "null".to_string(),
-            false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_name))
-                .to_string_lossy()
-                .into_owned(),
-        };
-        Some(FrameData {
-            func_name,
-            file_name,
-            identifier: frame as usize,
-            yielded_coroutine,
-        })
     }
 }
 
@@ -176,9 +177,12 @@ extern "C" fn callback(
         _ => return 0,
     };
 
-    let frame_data = match extract_from_frame(frame) {
-        Some(v) => v,
-        None => return 0,
+    let frame_data = match FrameData::try_from(frame) {
+        Ok(v) => v,
+        Err(err) => {
+            println!("{}", err);
+            return 0;
+        }
     };
 
     let gil = Python::acquire_gil();
@@ -208,11 +212,8 @@ extern "C" fn callback(
             if frame_data.yielded_coroutine {
                 return 0;
             }
-            match context.entries.get_mut().get_mut(&frame_data.identifier) {
-                Some(entry) => {
-                    entry.end = Some(Instant::now());
-                }
-                None => (),
+            if let Some(entry) = context.entries.get_mut().get_mut(&frame_data.identifier) {
+                entry.end = Some(Instant::now());
             };
         }
         _ => println!("shouldn't happen"),
