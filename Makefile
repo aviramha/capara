@@ -3,7 +3,7 @@ POETRY ?= poetry
 all: lint-check build test
 
 build:
-	maturin develop
+	@$(POETRY) run maturin develop
 
 .PHONY: install-poetry
 install-poetry:
@@ -97,7 +97,7 @@ lint-check-rustfmt:
 	@echo
 
 .PHONY: lint-check
-lint-check: lint-check-black lint-check-flake8 lint-check-isort lint-check-mypy
+lint-check: lint-check-clippy lint-check-rustfmt lint-check-black lint-check-flake8 lint-check-isort lint-check-mypy
 
 .PHONY: test
 test:

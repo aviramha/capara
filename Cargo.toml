@@ -9,6 +9,5 @@ name = "capara"
 crate-type = ["cdylib"]
 
 [dependencies.pyo3]
-git = "https://github.com/aviramha/pyo3"
-branch = "fix_pycodeobj_struct"
+git = "https://github.com/pyo3/pyo3"
 features = ["extension-module"]
