@@ -146,20 +146,7 @@ fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerC
         };
     }
 
-    if context_value.is_null() {
-        return None;
-    }
-
-    let context_obj =
-        match unsafe { Py::<ProfilerContext>::from_borrowed_ptr_or_opt(py, context_value) } {
-            Some(v) => v,
-            None => return None,
-        };
-
-    unsafe {
-        pyo3::ffi::Py_XDECREF(context_value);
-    }
-    Some(context_obj)
+    unsafe { Py::from_owned_ptr_or_opt(py, context_obj) }
 }
 
 /// Our profiler callback
