@@ -72,6 +72,7 @@ async def run_multi_tasks():
     return [task.result() for task in done]
 
 
+@pytest.mark.flaky
 def test_concurrent_tasks():
     loop = asyncio.get_event_loop()
     data = loop.run_until_complete(run_multi_tasks())
@@ -83,3 +84,15 @@ def test_concurrent_tasks():
         assert entry[0] == __file__
         assert entry[1] == "async_sleep"
         assert entry[2] // 100000000 == SLEEP_TIME * 10
+
+
+def test_double_start_error():
+    capara.profiler.start()
+    with pytest.raises(RuntimeError):
+        capara.profiler.start()
+    capara.profiler.stop()
+
+
+def test_stop_without_start():
+    with pytest.raises(RuntimeError):
+        capara.profiler.stop()

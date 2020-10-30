@@ -14,8 +14,7 @@ def start() -> None:
     Notes:
         Raises RuntimeError if a context already exists in task.
     """
-    context = _profiler_context.get()
-    if context:
+    if not is_active():
         raise RuntimeError("Profiler already exists")
     _profiler_context.set(capara.ProfilerContext())
     global _reference_count
@@ -42,6 +41,11 @@ def stop() -> List[Tuple[str, str, Optional[int]]]:
     entries.remove((__file__, "stop", None))
     _profiler_context.set(None)
     return entries
+
+
+def is_active() -> bool:
+    """Checks if profiler is active for current context."""
+    return _profiler_context.get() is not None
 
 
 class Profiler:
