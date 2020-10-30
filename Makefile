@@ -1,4 +1,4 @@
-POETRY ?= $(HOME)/.poetry/bin/poetry
+POETRY ?= poetry
 
 all: lint-check build test
 
