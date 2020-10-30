@@ -33,6 +33,11 @@ jobs:
     - name: Install dependencies
       run: |
         poetry install
+    - name: Install Rust && maturin
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        source $HOME/.cargo/env
+        pip install maturin
     - name: Test
       run: |
         make
