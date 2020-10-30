@@ -38,6 +38,7 @@ jobs:
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         source $HOME/.cargo/env
         pip install maturin
+        rustup component add clippy
     - name: Test
       run: |
         make
