@@ -34,7 +34,7 @@ def stop() -> List[Tuple[str, str, Optional[int]]]:
     _reference_count -= 1
     if _reference_count == 0:
         sys.setprofile(None)
-    context = _profiler_context.get(None)
+    context = _profiler_context.get()
     if context is None:
         raise RuntimeError("No context was found, stop called without start?")
     entries = context.entries

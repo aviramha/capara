@@ -72,15 +72,14 @@ async def run_multi_tasks():
     return [task.result() for task in done]
 
 
-# def test_concurrent_tasks():
-#     loop = asyncio.get_event_loop()
-#     data = loop.run_until_complete(run_multi_tasks())
-#     data = capara.profiler.stop()
-#     for profiler in data:
-#         for entry in profiler:
-#             if entry[1] == "async_sleep":
-#                 break
+def test_concurrent_tasks():
+    loop = asyncio.get_event_loop()
+    data = loop.run_until_complete(run_multi_tasks())
+    for profiler in data:
+        for entry in profiler:
+            if entry[1] == "async_sleep":
+                break
 
-#         assert entry[0] == __file__
-#         assert entry[1] == "async_sleep"
-#         assert entry[2] // 100000000 == SLEEP_TIME * 10
+        assert entry[0] == __file__
+        assert entry[1] == "async_sleep"
+        assert entry[2] // 100000000 == SLEEP_TIME * 10
