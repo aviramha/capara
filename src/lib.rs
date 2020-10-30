@@ -136,11 +136,7 @@ fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerC
     let mut context_obj: *mut pyo3::ffi::PyObject = std::ptr::null_mut();
 
     unsafe {
-        match PyContextVar_Get(
-            obj,
-            std::ptr::null_mut(),
-            &mut context_obj,
-        ) {
+        match PyContextVar_Get(obj, std::ptr::null_mut(), &mut context_obj) {
             0 => (),
             _ => return None,
         };

@@ -5,15 +5,18 @@ from typing import List, Optional, Tuple
 from . import capara
 
 _reference_count = 0
-_profiler_context: ContextVar[Optional[capara.ProfilerContext]] = ContextVar("profiler_context")
+_profiler_context: ContextVar[Optional[capara.ProfilerContext]] = ContextVar("profiler_context", default=None)
 
 
 def start() -> None:
     """Starts the profiler.
 
     Notes:
-        In case the profiler was already started in the same task, this will override existing data.
+        Raises RuntimeError if a context already exists in task.
     """
+    context = _profiler_context.get()
+    if context:
+        raise RuntimeError("Profiler already exists")
     _profiler_context.set(capara.ProfilerContext())
     global _reference_count
     if _reference_count == 0:
@@ -31,7 +34,7 @@ def stop() -> List[Tuple[str, str, Optional[int]]]:
     _reference_count -= 1
     if _reference_count == 0:
         sys.setprofile(None)
-    context = _profiler_context.get()
+    context = _profiler_context.get(None)
     if context is None:
         raise RuntimeError("No context was found, stop called without start?")
     entries = context.entries
