@@ -16,8 +16,9 @@ def start() -> None:
     """
     _profiler_context.set(capara.ProfilerContext())
     global _reference_count
+    if _reference_count == 0:
+        capara.start(_profiler_context)
     _reference_count += 1
-    capara.start(_profiler_context)
 
 
 def stop() -> List[Tuple[str, str, Optional[int]]]:
