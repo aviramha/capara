@@ -20,12 +20,12 @@ async def async_sleep(duration: float):
 def test_sanity():
     capara.profiler.start()
     sleep(SLEEP_TIME)
-    data = capara.profiler.stop()
-    assert len(data) == 1
-    entry = data[0]
-    assert entry[0] == __file__
-    assert entry[1] == "sleep"
-    assert entry[2] // 100000000 == SLEEP_TIME * 10
+    result = capara.profiler.stop()
+    assert len(result.entries) == 1
+    entry = result.entries[0]
+    assert entry.file_name == __file__
+    assert entry.func_name == "sleep"
+    assert entry.duration // 100000000 == SLEEP_TIME * 10
 
 
 @pytest.mark.flaky
@@ -33,12 +33,12 @@ def test_sanity_context():
     profiler = capara.profiler.Profiler()
     with profiler:
         sleep(SLEEP_TIME)
-    data = profiler.results
-    assert len(data) == 1
-    entry = data[0]
-    assert entry[0] == __file__
-    assert entry[1] == "sleep"
-    assert entry[2] // 100000000 == SLEEP_TIME * 10
+    result = profiler.results
+    assert len(result.entries) == 1
+    entry = result.entries[0]
+    assert entry.file_name == __file__
+    assert entry.func_name == "sleep"
+    assert entry.duration // 100000000 == SLEEP_TIME * 10
 
 
 @pytest.mark.flaky
@@ -46,14 +46,14 @@ def test_sanity_async():
     loop = asyncio.get_event_loop()
     capara.profiler.start()
     loop.run_until_complete(async_sleep(SLEEP_TIME))
-    data = capara.profiler.stop()
-    for entry in data:
-        if entry[1] == "async_sleep":
+    result = capara.profiler.stop()
+    for entry in result.entries:
+        if entry.func_name == "async_sleep":
             break
 
-    assert entry[0] == __file__
-    assert entry[1] == "async_sleep"
-    assert entry[2] // 100000000 == SLEEP_TIME * 10
+    assert entry.file_name == __file__
+    assert entry.func_name == "async_sleep"
+    assert entry.duration // 100000000 == SLEEP_TIME * 10
 
 
 async def async_task_self_profiling():
@@ -77,13 +77,13 @@ def test_concurrent_tasks():
     loop = asyncio.get_event_loop()
     data = loop.run_until_complete(run_multi_tasks())
     for profiler in data:
-        for entry in profiler:
-            if entry[1] == "async_sleep":
+        for entry in profiler.entries:
+            if entry.func_name == "async_sleep":
                 break
 
-        assert entry[0] == __file__
-        assert entry[1] == "async_sleep"
-        assert entry[2] // 100000000 == SLEEP_TIME * 10
+        assert entry.file_name == __file__
+        assert entry.func_name == "async_sleep"
+        assert entry.duration // 100000000 == SLEEP_TIME * 10
 
 
 def test_double_start_error():

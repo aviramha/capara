@@ -1,10 +1,33 @@
 import sys
 from contextvars import ContextVar
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional
 
 from . import capara
 
-_reference_count = 0
+
+@dataclass
+class ReferenceCount:
+    count: int = 0
+
+
+@dataclass
+class ProfilerEntry:
+    func_name: str
+    file_name: str
+    duration: Optional[int] = None
+
+    @classmethod
+    def from_tuple(cls, file_name: str, func_name: str, duration: Optional[int]) -> "ProfilerEntry":
+        return cls(file_name=file_name, func_name=func_name, duration=duration)
+
+
+@dataclass
+class ProfilerResult:
+    entries: List[ProfilerEntry]
+
+
+_reference_count = ReferenceCount()
 _profiler_context: ContextVar[Optional[capara.ProfilerContext]] = ContextVar("profiler_context", default=None)
 
 
@@ -17,21 +40,20 @@ def start() -> None:
     if is_active():
         raise RuntimeError("Profiler already exists")
     _profiler_context.set(capara.ProfilerContext())
-    global _reference_count
-    if _reference_count == 0:
+
+    if _reference_count.count == 0:
         capara.start(_profiler_context)
-    _reference_count += 1
+    _reference_count.count += 1
 
 
-def stop() -> List[Tuple[str, str, Optional[int]]]:
+def stop() -> ProfilerResult:
     """Stops the profiler. Completely stops the profiler only if reference count equals to zero.
 
     Returns:
-        List of profiler events, each event is a tuple of (file_name, func_name, duration).
+        ProfilerResult
     """
-    global _reference_count
-    _reference_count -= 1
-    if _reference_count == 0:
+    _reference_count.count -= 1
+    if _reference_count.count == 0:
         sys.setprofile(None)
     context = _profiler_context.get()
     if context is None:
@@ -40,7 +62,7 @@ def stop() -> List[Tuple[str, str, Optional[int]]]:
     # Remove stop function entry to avoid garbage
     entries.remove((__file__, "stop", None))
     _profiler_context.set(None)
-    return entries
+    return ProfilerResult(entries=[ProfilerEntry.from_tuple(*entry) for entry in entries])
 
 
 def is_active() -> bool:
@@ -50,11 +72,11 @@ def is_active() -> bool:
 
 class Profiler:
     def __init__(self):
-        self.results: Optional[List[Tuple[str, str, Optional[int]]]] = None
+        self.results: Optional[ProfilerResult] = None
 
     def __enter__(self):
         start()
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.results = stop()
-        self.results.remove((__file__, "__exit__", None))
+        self.results.entries.remove(ProfilerEntry(file_name=__file__, func_name="__exit__", duration=None))
