@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+import pytest
 import capara.profiler
 
 SLEEP_TIME = 0.1
@@ -13,7 +14,7 @@ def sleep(duration: float):
 async def async_sleep(duration: float):
     time.sleep(duration)
 
-
+@pytest.mark.flaky
 def test_sanity():
     capara.profiler.start()
     sleep(SLEEP_TIME)
@@ -24,7 +25,7 @@ def test_sanity():
     assert entry[1] == "sleep"
     assert entry[2] // 100000000 == SLEEP_TIME * 10
 
-
+@pytest.mark.flaky
 def test_sanity_context():
     profiler = capara.profiler.Profiler()
     with profiler:
@@ -37,6 +38,7 @@ def test_sanity_context():
     assert entry[2] // 100000000 == SLEEP_TIME * 10
 
 
+@pytest.mark.flaky
 def test_sanity_async():
     loop = asyncio.get_event_loop()
     capara.profiler.start()
