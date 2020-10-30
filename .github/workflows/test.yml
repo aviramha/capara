@@ -39,6 +39,7 @@ jobs:
         source $HOME/.cargo/env
         pip install maturin
         rustup component add clippy
+        rustup component add rustfmt
     - name: Test
       run: |
         make
