@@ -10,6 +10,7 @@ use std::convert::{TryFrom, TryInto};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::time::Instant;
+use std::cell::Cell;
 
 /// Enum of possible Python's Trace/Profiling events
 #[allow(dead_code)]
@@ -96,20 +97,27 @@ struct ProfilerEntry {
     func_name: String,
     start: Instant,
     end: Option<Instant>,
+    index: i32,
 }
 
 /// Profiler context to be used as a value for ContextVar.
 #[pyclass]
 struct ProfilerContext {
-    entries: std::cell::Cell<HashMap<usize, ProfilerEntry>>,
+    entries: Cell<HashMap<usize, ProfilerEntry>>,
+    count: i32,
 }
 
 /// Format an entry into file_name, func_name and duration.
-fn format_entry(entry: &ProfilerEntry) -> (String, String, Option<u128>) {
+fn format_entry(entry: &ProfilerEntry) -> (String, String, Option<u128>, i32) {
     let duration = entry
         .end
         .and_then(|v| Some(v.duration_since(entry.start).as_nanos()));
-    (entry.file_name.clone(), entry.func_name.clone(), duration)
+    (
+        entry.file_name.clone(),
+        entry.func_name.clone(),
+        duration,
+        entry.index,
+    )
 }
 
 #[pymethods]
@@ -117,11 +125,12 @@ impl ProfilerContext {
     #[new]
     fn new() -> Self {
         ProfilerContext {
-            entries: std::cell::Cell::new(HashMap::new()),
+            entries: Cell::new(HashMap::new()),
+            count: 0,
         }
     }
     #[getter]
-    fn entries(&mut self) -> PyResult<Vec<(String, String, Option<u128>)>> {
+    fn entries(&mut self) -> PyResult<Vec<(String, String, Option<u128>, i32)>> {
         Ok(self
             .entries
             .get_mut()
@@ -141,7 +150,13 @@ fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerC
         };
     }
 
-    unsafe { Py::from_owned_ptr_or_opt(py, context_obj) }
+    let context = unsafe {
+        Py::from_owned_ptr_or_opt(py, context_obj)?
+    };
+    match py.get_type::<ProfilerContext>().is_instance(&context) {
+        Ok(true) => Some(context),
+        _ => None
+    }
 }
 
 /// Our profiler callback
@@ -178,17 +193,27 @@ extern "C" fn callback(
 
     match event {
         TraceEvent::Call => {
+            // Frame already exists in hashmap, means that we're in a yielded function.
+            if context
+                .entries
+                .get_mut()
+                .contains_key(&frame_data.identifier)
+            {
+                return 0;
+            }
             let start = Instant::now();
             let entry = ProfilerEntry {
                 func_name: frame_data.func_name,
                 file_name: frame_data.file_name,
                 start,
                 end: None,
+                index: context.count,
             };
             context
                 .entries
                 .get_mut()
                 .insert(frame_data.identifier, entry);
+            context.count += 1;
         }
         TraceEvent::Return => {
             if frame_data.is_yielded_coroutine {

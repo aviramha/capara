@@ -66,6 +66,7 @@ async def async_task_self_profiling():
     """
     Task that runs a profiler, then returns the results.
     """
+    print(capara.profiler._profiler_context.get())
     profiler = capara.profiler.Profiler()
     with profiler:
         await async_sleep(SLEEP_TIME)
