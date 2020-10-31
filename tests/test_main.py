@@ -13,7 +13,10 @@ def sleep(duration: float):
 
 
 async def async_sleep(duration: float):
-    time.sleep(duration)
+    await asyncio.sleep(duration)
+
+async def real_sleep(duration: float):
+    sleep(duration)
 
 
 @pytest.mark.flaky
@@ -21,11 +24,12 @@ def test_sanity():
     capara.profiler.start()
     sleep(SLEEP_TIME)
     result = capara.profiler.stop()
-    assert len(result.entries) == 1
+    assert len(result.entries) == 2
     entry = result.entries[0]
     assert entry.file_name == __file__
     assert entry.func_name == "sleep"
     assert entry.duration // 100000000 == SLEEP_TIME * 10
+    assert entry.call_index == 0
 
 
 @pytest.mark.flaky
@@ -34,11 +38,12 @@ def test_sanity_context():
     with profiler:
         sleep(SLEEP_TIME)
     result = profiler.results
-    assert len(result.entries) == 1
+    assert len(result.entries) == 3
     entry = result.entries[0]
     assert entry.file_name == __file__
     assert entry.func_name == "sleep"
     assert entry.duration // 100000000 == SLEEP_TIME * 10
+    assert entry.call_index == 0
 
 
 @pytest.mark.flaky
@@ -54,6 +59,7 @@ def test_sanity_async():
     assert entry.file_name == __file__
     assert entry.func_name == "async_sleep"
     assert entry.duration // 100000000 == SLEEP_TIME * 10
+    assert entry.call_index == 20
 
 
 async def async_task_self_profiling():
@@ -84,6 +90,7 @@ def test_concurrent_tasks():
         assert entry.file_name == __file__
         assert entry.func_name == "async_sleep"
         assert entry.duration // 100000000 == SLEEP_TIME * 10
+        assert entry.call_index == 0
 
 
 def test_double_start_error():
@@ -111,3 +118,6 @@ def test_async_double_start_error():
 def test_stop_without_start():
     with pytest.raises(RuntimeError):
         capara.profiler.stop()
+
+
+# def test_blocking_asyncio_concurrency():

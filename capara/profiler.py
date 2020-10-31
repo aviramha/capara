@@ -12,7 +12,8 @@ _profiler_context: ContextVar[Optional[capara.ProfilerContext]] = ContextVar("pr
 class ProfilerEntry(NamedTuple):
     file_name: str
     func_name: str
-    duration: Optional[int] = None
+    duration: Optional[int]
+    call_index: int
 
 
 @dataclass
@@ -40,7 +41,7 @@ def stop() -> ProfilerResult:
     """Stops the profiler. Completely stops the profiler only if reference count equals to zero.
 
     Returns:
-        ProfilerResult
+        ProfilerResult, with entries sorted by call_index.
     """
     global _reference_count
     if _reference_count > 0:
@@ -51,10 +52,10 @@ def stop() -> ProfilerResult:
     if context is None:
         raise RuntimeError("No context was found, stop called without start?")
     entries = context.entries
-    # Remove stop function entry to avoid garbage
-    entries.remove((__file__, "stop", None))
     _profiler_context.set(None)
-    return ProfilerResult(entries=[ProfilerEntry(*entry) for entry in entries])
+    formatted_entries = [ProfilerEntry(*entry) for entry in entries]
+    formatted_entries.sort(key=lambda x: x.call_index)
+    return ProfilerResult(entries=formatted_entries)
 
 
 def is_active() -> bool:
@@ -72,4 +73,3 @@ class Profiler:
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.results = stop()
-        self.results.entries.remove(ProfilerEntry(__file__, "__exit__", None))
