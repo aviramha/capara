@@ -93,6 +93,21 @@ def test_double_start_error():
     capara.profiler.stop()
 
 
+def test_async_double_start_error():
+    async def second_task():
+        profiler = capara.profiler.Profiler()
+        with profiler:
+            await async_sleep(SLEEP_TIME)
+
+    async def first_task():
+        profiler = capara.profiler.Profiler()
+        with profiler, pytest.raises(RuntimeError):
+            await second_task()
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(first_task())
+
+
 def test_stop_without_start():
     with pytest.raises(RuntimeError):
         capara.profiler.stop()
