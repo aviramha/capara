@@ -5,12 +5,12 @@ use pyo3::ffi::{
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 use pyo3::{AsPyPointer, PyAny, Python};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CStr;
 use std::os::raw::c_int;
 use std::time::Instant;
-use std::cell::Cell;
 
 /// Enum of possible Python's Trace/Profiling events
 #[allow(dead_code)]
@@ -150,12 +150,11 @@ fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerC
         };
     }
 
-    let context = unsafe {
-        Py::from_owned_ptr_or_opt(py, context_obj)?
-    };
-    match py.get_type::<ProfilerContext>().is_instance(&context) {
-        Ok(true) => Some(context),
-        _ => None
+    let context = unsafe { Py::from_owned_ptr_or_opt(py, context_obj)? };
+    if context.is_none(py) {
+        None
+    } else {
+        Some(context)
     }
 }
 
@@ -194,6 +193,7 @@ extern "C" fn callback(
     match event {
         TraceEvent::Call => {
             // Frame already exists in hashmap, means that we're in a yielded function.
+
             if context
                 .entries
                 .get_mut()
@@ -201,6 +201,7 @@ extern "C" fn callback(
             {
                 return 0;
             }
+
             let start = Instant::now();
             let entry = ProfilerEntry {
                 func_name: frame_data.func_name,
@@ -209,16 +210,19 @@ extern "C" fn callback(
                 end: None,
                 index: context.count,
             };
+
             context
                 .entries
                 .get_mut()
                 .insert(frame_data.identifier, entry);
+
             context.count += 1;
         }
         TraceEvent::Return => {
             if frame_data.is_yielded_coroutine {
                 return 0;
             }
+
             if let Some(entry) = context.entries.get_mut().get_mut(&frame_data.identifier) {
                 entry.end = Some(Instant::now());
             };
