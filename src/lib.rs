@@ -13,6 +13,7 @@ use std::time::Instant;
 
 /// Enum of possible Python's Trace/Profiling events
 #[allow(dead_code)]
+#[non_exhaustive]
 #[repr(i32)]
 enum TraceEvent {
     Call,
@@ -23,14 +24,15 @@ enum TraceEvent {
     CException,
     CReturn,
     Opcode,
-    __NonExhaustive,
 }
+
+const LARGER_THAN_ANY_TRACE_EVENT: i32 = TraceEvent::Opcode as i32 + 1;
 
 impl TryFrom<c_int> for TraceEvent {
     type Error = &'static str;
     /// Cast i32 event (raw from Python) to Rust enum.
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        if value > 7 || value < 0 {
+        if value >= LARGER_THAN_ANY_TRACE_EVENT || value < 0 {
             return Err("Not valid enum value");
         }
         Ok(unsafe { std::mem::transmute(value) })
@@ -43,7 +45,7 @@ struct FrameData {
     func_name: String,
     file_name: String,
     identifier: usize,
-    yielded_coroutine: bool,
+    is_yielded_coroutine: bool,
 }
 
 impl TryFrom<*mut PyFrameObject> for FrameData {
@@ -60,32 +62,29 @@ impl TryFrom<*mut PyFrameObject> for FrameData {
         }
 
         let code = unsafe { *dframe.f_code };
-        let yielded_coroutine = {
-            (0 < (code.co_flags & CO_COROUTINE)
-                | (code.co_flags & CO_ITERABLE_COROUTINE)
-                | (code.co_flags & CO_ASYNC_GENERATOR))
+        let is_yielded_coroutine = {
+            (code.co_flags & (CO_COROUTINE | CO_ITERABLE_COROUTINE | CO_ASYNC_GENERATOR) > 0)
                 && (!dframe.f_stacktop.is_null())
         };
 
-        unsafe {
-            let file_name = match code.co_filename.is_null() {
-                true => "null".to_string(),
-                false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_filename))
-                    .to_string_lossy()
-                    .into_owned(),
-            };
-            let func_name = match code.co_name.is_null() {
-                true => "null".to_string(),
-                false => CStr::from_ptr(PyUnicode_AsUTF8(code.co_name))
-                    .to_string_lossy()
-                    .into_owned(),
-            };
-            Ok(FrameData {
-                func_name,
-                file_name,
-                identifier: frame as usize,
-                yielded_coroutine,
-            })
+        let file_name = pyo3_to_string(code.co_filename);
+        let func_name = pyo3_to_string(code.co_name);
+        Ok(FrameData {
+            func_name,
+            file_name,
+            identifier: frame as usize,
+            is_yielded_coroutine,
+        })
+    }
+}
+
+fn pyo3_to_string(obj: *mut pyo3::ffi::PyObject) -> String {
+    unsafe {
+        match obj.is_null() {
+            true => "<null>".to_string(),
+            false => CStr::from_ptr(PyUnicode_AsUTF8(obj))
+                .to_string_lossy()
+                .into_owned(),
         }
     }
 }
@@ -107,10 +106,9 @@ struct ProfilerContext {
 
 /// Format an entry into file_name, func_name and duration.
 fn format_entry(entry: &ProfilerEntry) -> (String, String, Option<u128>) {
-    let duration = match entry.end {
-        Some(v) => Some(v.duration_since(entry.start).as_nanos()),
-        None => None,
-    };
+    let duration = entry
+        .end
+        .and_then(|v| Some(v.duration_since(entry.start).as_nanos()));
     (entry.file_name.clone(), entry.func_name.clone(), duration)
 }
 
@@ -124,11 +122,12 @@ impl ProfilerContext {
     }
     #[getter]
     fn entries(&mut self) -> PyResult<Vec<(String, String, Option<u128>)>> {
-        let mut result = Vec::new();
-        for (_, entry) in self.entries.get_mut().iter() {
-            result.push(format_entry(entry));
-        }
-        Ok(result)
+        Ok(self
+            .entries
+            .get_mut()
+            .iter()
+            .map(|(_, entry)| format_entry(entry))
+            .collect())
     }
 }
 
@@ -192,14 +191,14 @@ extern "C" fn callback(
                 .insert(frame_data.identifier, entry);
         }
         TraceEvent::Return => {
-            if frame_data.yielded_coroutine {
+            if frame_data.is_yielded_coroutine {
                 return 0;
             }
             if let Some(entry) = context.entries.get_mut().get_mut(&frame_data.identifier) {
                 entry.end = Some(Instant::now());
             };
         }
-        _ => println!("shouldn't happen"),
+        _ => unreachable!(),
     }
     0
 }
