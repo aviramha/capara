@@ -12,6 +12,7 @@ _profiler_context: ContextVar[Optional[capara.ProfilerContext]] = ContextVar("pr
 class ProfilerEntry(NamedTuple):
     file_name: str
     func_name: str
+    # Duration in nanoseconds.
     duration: Optional[int]
     call_index: int
 

@@ -149,7 +149,6 @@ fn get_context(py: Python, obj: *mut pyo3::ffi::PyObject) -> Option<Py<ProfilerC
             _ => return None,
         };
     }
-
     let context = unsafe { Py::from_owned_ptr_or_opt(py, context_obj)? };
     if context.is_none(py) {
         None
@@ -242,7 +241,6 @@ fn start(context_var: &PyAny) -> PyResult<()> {
 }
 
 #[pymodule]
-/// A Python module implemented in Rust.
 fn capara(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(start, m)?)?;
     m.add_class::<ProfilerContext>()?;
