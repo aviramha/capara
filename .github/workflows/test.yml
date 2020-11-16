@@ -1,0 +1,45 @@
+name: Test capara
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  tests:
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+        platform: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Setup Poetry
+      run: |
+        python -m pip install --upgrade pip
+        pip install --pre poetry
+    - name: Setup Cache
+      uses: actions/cache@v2
+      with:
+        path: ~/.cache/pypoetry
+        key: ${{ runner.os }}-pip-${{ matrix.platform }}-${{ matrix.python-version }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.platform }}-${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        poetry install
+    - name: Install Rust && maturin
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        source $HOME/.cargo/env
+        pip install maturin
+        rustup component add clippy
+        rustup component add rustfmt
+    - name: Test
+      run: |
+        make
