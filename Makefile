@@ -106,4 +106,4 @@ test:
 
 .PHONY: publish
 publish:
-	@$(POETRY) publish --username=$(PYPI_USERNAME) --password=$(PYPI_PASSWORD) --build
+	twine upload --non-interactive --skip-existing target/wheels/*.whl target/wheels/*.tar.gz

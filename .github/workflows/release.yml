@@ -6,7 +6,7 @@ on:
 
 
 jobs:
-  tests:
+  release:
     strategy:
       matrix:
         python-version: [3.8, 3.9]
@@ -32,6 +32,17 @@ jobs:
     - name: Install dependencies
       run: |
         poetry install
+    - name: Install Rust && maturin
+      run: |
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        source $HOME/.cargo/env
+        pip install maturin twine
+    - name: Build
+      run: |
+        maturin build --release --strip --interpreter python${{ matrix.python-version }}
     - name: Publish
+      env:
+        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
         make publish
